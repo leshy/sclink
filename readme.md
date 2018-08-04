@@ -1,3 +1,3 @@
 # sclink
 
-query-reply system for supercollider and node (as a server) built on top of OSC messages
+simple RPC system for supercollider and nodejs as a server built on top of OSC messages
