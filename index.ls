@@ -1,14 +1,9 @@
 require! {
   osc
-  lodash: { map }
+  debug
+  lodash: { tail, head, map, filter, defaults }
 }
 
-udpPort = new osc.UDPPort do
-    remoteAddress: "127.0.0.1"
-    localAddress: "127.0.0.1"
-    localPort: 4001
-    remotePort: 4000
-    metadata: true
 
 toOsc = (args) ->
   getType = (val) ->
@@ -24,24 +19,47 @@ toOsc = (args) ->
 
 fromOsc = (args) -> map args, (.value)
 
-udpPort.on "message", (oscMsg) -> 
-    console.log "msg in", oscMsg
-
-    if oscMsg.address.slice(0,7) != "/query." then return
-
-    apiName = oscMsg.address.slice(7)
+export class OscServer
+  options:
+    remoteAddress: "127.0.0.1"
+    localAddress: "127.0.0.1"
+    localPort: 4001
+    remotePort: 4000
+    metadata: true
     
-    [ callId, ...apiArgs ] = fromOsc oscMsg.args
-    console.log 'calling', callId, apiName, ...oscMsg.args
+  (options={}) ->
+    @logOsc = debug("osc")
+    @logRpc = debug("oscrpc")
+    options = defaults(options, @options)
+    @logOsc "instantiating listener", options
+    @udpPort = new osc.UDPPort options
 
-    reply = toOsc(test(...apiArgs))
-    console.log 'replying with', ...reply
-    udpPort.send do
-      address: "/reply.#{callId}"
-      args: reply
+    @udpPort.open()
+    
+    @udpPort.on "message", (oscMsg) ~>
+      @logOsc "msg <<<", oscMsg
+      oscMsg.address = filter oscMsg.address.split('/'), (!= "")
 
-test = (...args) ->
-  return [ 33, "bla", 1.1 ]
+      if head oscMsg.address isnt "query" then return
+      apiName = oscMsg.address[1]
 
+      [ callId, ...apiArgs ] = fromOsc oscMsg.args
 
-udpPort.open()
+      @logRpc "got call for #{apiName} with args #{apiArgs} and id #{callId}"
+      if @[apiName]?@@ isnt Function then return @logRpc "api call #{apiName} not found"
+      result = @[apiName](...apiArgs)
+      @logRpc "#{apiName} result: #{result}"
+      
+      msg = do
+        address: "/reply/#{callId}"
+        args: toOsc result
+        
+      @logOsc "msg >>>", oscMsg
+      @udpPort.send msg
+      
+
+# oscServer = new OscServer()
+
+# oscServer.test = (...args) ->
+#   console.log 'test got', args
+#   [ 1,2,3]
